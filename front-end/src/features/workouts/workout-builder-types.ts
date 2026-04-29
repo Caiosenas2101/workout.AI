@@ -24,6 +24,7 @@ export type WorkoutSplitId =
   | 'abcd'
   | 'abcde'
   | 'ppl-plus'
+  | 'ppl-ul'
   | 'ppl-2x'
   | 'abc-2x'
   | 'active-rest'

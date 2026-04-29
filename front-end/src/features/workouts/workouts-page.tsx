@@ -26,7 +26,7 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
 import { weekDays, workoutMethods, workoutSplits } from './workout-builder-data'
-import type { WorkoutPlan } from './workout-builder-types'
+import type { CardioConfig, WorkoutPlan } from './workout-builder-types'
 
 type SetType = 'Aquecimento' | 'Feeder' | 'Válida' | 'Top set' | 'Back-off'
 type CardioType = 'Caminhada' | 'Corrida' | 'Bicicleta' | 'Escada' | 'Elíptico' | 'HIIT'
@@ -119,6 +119,16 @@ type WorkoutHistoryItem = WorkoutSummaryData & {
 
 const historyStorageKey = 'workout-ai-history'
 const workoutsStorageKey = 'workout-ai-workouts'
+const removedMockWorkoutIds = new Set(['mock-low-volume', 'mock-hybrid'])
+const removedMockWorkoutNames = new Set(['Low Volume Hipertrofia', 'Híbrido Performance'])
+const fallbackCardioConfig: CardioConfig = {
+  mode: 'Sem cardio',
+  type: 'Caminhada',
+  intensity: 'Leve',
+  duration: '20 min',
+  customDuration: '',
+  timing: 'Depois do treino',
+}
 
 function exercise(
   id: string,
@@ -172,37 +182,45 @@ function parseRestSeconds(rest: string) {
 function mapStoredPlan(plan: WorkoutPlan): SavedWorkout {
   const method = workoutMethods.find((item) => item.id === plan.method)?.name ?? 'Low Volume'
   const split = workoutSplits.find((item) => item.id === plan.split)?.name ?? 'Personalizado'
-  const weekdays = plan.days.map((dayId) => weekDays.find((day) => day.id === dayId)?.label ?? dayId)
+  const planDays = Array.isArray(plan.days) ? plan.days : []
+  const workoutDays = Array.isArray(plan.workoutDays) ? plan.workoutDays : []
+  const cardio = plan.cardio ?? fallbackCardioConfig
+  const weekdays = planDays.map((dayId) => weekDays.find((day) => day.id === dayId)?.label ?? dayId)
 
   return {
-    id: plan.id,
-    name: plan.name,
+    id: plan.id || crypto.randomUUID(),
+    name: plan.name || 'Meu treino',
     methodology: method === 'High Volume' ? 'High Volume' : method === 'Híbrido' ? 'Híbrido' : 'Low Volume',
     split: normalizeSplit(split),
     weekdays,
     lastAccessed: 'Criado localmente',
-    days: plan.workoutDays.map((day, dayIndex) => {
+    days: workoutDays.map((day, dayIndex) => {
       const weekday = weekDays.find((item) => item.id === day.dayId)?.label ?? `Dia ${dayIndex + 1}`
-      const hasCardio = plan.cardio.mode !== 'Sem cardio' && (day.focus.toLowerCase().includes('cardio') || plan.cardio.mode.includes('treino'))
+      const hasCardio = cardio.mode !== 'Sem cardio' && (day.focus.toLowerCase().includes('cardio') || cardio.mode.includes('treino'))
 
       return {
         id: `${plan.id}-${day.dayId}`,
         weekday,
         focus: day.focus,
-        muscleGroups: day.muscleGroups,
+        muscleGroups: Array.isArray(day.muscleGroups) ? day.muscleGroups : [],
         cardio: hasCardio
           ? {
               id: `${plan.id}-${day.dayId}-cardio`,
-              type: normalizeCardioType(plan.cardio.type),
-              duration: plan.cardio.duration === 'Personalizado' ? plan.cardio.customDuration || '20 min' : plan.cardio.duration,
-              intensity: plan.cardio.intensity,
-              timing: plan.cardio.timing === 'Em dia de descanso' ? 'Separado da musculação' : (plan.cardio.timing as CardioTiming),
+              type: normalizeCardioType(cardio.type),
+              duration: cardio.duration === 'Personalizado' ? cardio.customDuration || '20 min' : cardio.duration,
+              intensity: cardio.intensity,
+              timing: cardio.timing === 'Em dia de descanso' ? 'Separado da musculação' : (cardio.timing as CardioTiming),
             }
           : undefined,
-        exercises: day.exercises.map((selectedExercise) => {
+        exercises: (Array.isArray(day.exercises) ? day.exercises : []).map((selectedExercise) => {
           const restSeconds = parseRestSeconds(selectedExercise.rest)
-          const setTypes = Array.from({ length: selectedExercise.sets }, (_, index) => {
-            if (index === 0 && selectedExercise.sets > 2) return 'Feeder'
+          const equipment = Array.isArray(selectedExercise.equipment)
+            ? selectedExercise.equipment[0]
+            : selectedExercise.equipment
+          const variations = Array.isArray(selectedExercise.variations) ? selectedExercise.variations : []
+          const setCount = Math.max(1, Number(selectedExercise.sets) || 1)
+          const setTypes = Array.from({ length: setCount }, (_, index) => {
+            if (index === 0 && setCount > 2) return 'Feeder'
             return 'Válida'
           }) as SetType[]
 
@@ -211,8 +229,8 @@ function mapStoredPlan(plan: WorkoutPlan): SavedWorkout {
             selectedExercise.name,
             selectedExercise.muscleGroup,
             selectedExercise.subgroup,
-            selectedExercise.equipment[0] ?? 'Livre',
-            selectedExercise.variations[0] ?? 'Execute com controle.',
+            equipment ?? 'Livre',
+            variations[0] ?? 'Execute com controle.',
             selectedExercise.reps,
             '0 kg',
             restSeconds,
@@ -245,8 +263,19 @@ function normalizeCardioType(type: string): CardioType {
 function getStoredWorkouts() {
   try {
     const storedPlans = window.localStorage.getItem(workoutsStorageKey)
-    const plans = storedPlans ? (JSON.parse(storedPlans) as WorkoutPlan[]) : []
-    return plans.map(mapStoredPlan)
+    const parsedPlans = storedPlans ? (JSON.parse(storedPlans) as unknown) : []
+    const plans = (Array.isArray(parsedPlans) ? parsedPlans : []).filter((plan) => {
+      const storedPlan = plan as Partial<WorkoutPlan>
+      return !removedMockWorkoutIds.has(storedPlan.id ?? '') && !removedMockWorkoutNames.has(storedPlan.name ?? '')
+    })
+
+    return plans.flatMap((plan) => {
+      try {
+        return [mapStoredPlan(plan as WorkoutPlan)]
+      } catch {
+        return []
+      }
+    })
   } catch {
     return []
   }
@@ -293,7 +322,9 @@ function createSetState(day: WorkoutDay) {
 
 export function WorkoutsPage() {
   const navigate = useNavigate()
-  const [savedWorkouts, setSavedWorkouts] = React.useState<SavedWorkout[]>([])
+  const [savedWorkouts, setSavedWorkouts] = React.useState<SavedWorkout[]>(() =>
+    typeof window === 'undefined' ? [] : getStoredWorkouts(),
+  )
   const [selectedWorkout, setSelectedWorkout] = React.useState<SavedWorkout | null>(null)
   const [selectedDay, setSelectedDay] = React.useState<WorkoutDay | null>(null)
   const [screen, setScreen] = React.useState<Screen>('list')
@@ -304,8 +335,21 @@ export function WorkoutsPage() {
   const [startedAt, setStartedAt] = React.useState<Date | null>(null)
 
   React.useEffect(() => {
-    setSavedWorkouts(getStoredWorkouts())
-    setHistory(getStoredHistory())
+    function loadLocalData() {
+      setSavedWorkouts(getStoredWorkouts())
+      setHistory(getStoredHistory())
+    }
+
+    loadLocalData()
+    window.addEventListener('focus', loadLocalData)
+    window.addEventListener('workouts-updated', loadLocalData)
+    document.addEventListener('visibilitychange', loadLocalData)
+
+    return () => {
+      window.removeEventListener('focus', loadLocalData)
+      window.removeEventListener('workouts-updated', loadLocalData)
+      document.removeEventListener('visibilitychange', loadLocalData)
+    }
   }, [])
 
   function accessWorkout(workout: SavedWorkout) {

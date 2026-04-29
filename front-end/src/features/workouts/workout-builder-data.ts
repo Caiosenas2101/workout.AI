@@ -48,6 +48,7 @@ export const workoutSplits: WorkoutSplit[] = [
   { id: 'abcd', name: 'ABCD', description: 'Quatro sessões com maior especificidade.', recommendedDays: [4] },
   { id: 'abcde', name: 'ABCDE', description: 'Cinco sessões com foco por região.', recommendedDays: [5] },
   { id: 'ppl-plus', name: 'PPL + complementos', description: 'PPL com sessões extras de ajuste.', recommendedDays: [5] },
+  { id: 'ppl-ul', name: 'PPL/UL', description: 'Push, Pull, Legs, Upper e Lower na mesma semana.', recommendedDays: [5] },
   { id: 'ppl-2x', name: 'PPL 2x', description: 'Push, Pull e Legs repetidos duas vezes.', recommendedDays: [6] },
   { id: 'abc-2x', name: 'ABC 2x', description: 'ABC repetido duas vezes na semana.', recommendedDays: [6] },
   { id: 'active-rest', name: 'Treino + descanso ativo', description: '5 a 6 treinos com 1 ou 2 dias leves.', recommendedDays: [7] },

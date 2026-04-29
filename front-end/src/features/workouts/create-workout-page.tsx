@@ -57,6 +57,8 @@ const steps = [
 ] as const
 
 const muscleNameById = new Map(muscleGroups.map((group) => [group.id, group.name]))
+const removedMockWorkoutIds = new Set(['mock-low-volume', 'mock-hybrid'])
+const removedMockWorkoutNames = new Set(['Low Volume Hipertrofia', 'Híbrido Performance'])
 
 function createDefaultWorkoutDay(dayId: WeekDayId, index: number): WorkoutDay {
   const suggestedFocus = ['Push', 'Pull', 'Legs', 'Upper', 'Lower', 'Full Body', 'Descanso ativo'][index] ?? 'Personalizado'
@@ -72,7 +74,9 @@ function createDefaultWorkoutDay(dayId: WeekDayId, index: number): WorkoutDay {
 function getStoredPlans() {
   try {
     const storedPlans = window.localStorage.getItem('workout-ai-workouts')
-    return storedPlans ? (JSON.parse(storedPlans) as WorkoutPlan[]) : []
+    const parsedPlans = storedPlans ? (JSON.parse(storedPlans) as unknown) : []
+    const plans = Array.isArray(parsedPlans) ? (parsedPlans as WorkoutPlan[]) : []
+    return plans.filter((plan) => !removedMockWorkoutIds.has(plan.id) && !removedMockWorkoutNames.has(plan.name))
   } catch {
     return []
   }
@@ -91,17 +95,20 @@ export function CreateWorkoutPage() {
     createDefaultWorkoutDay('wed', 1),
     createDefaultWorkoutDay('fri', 2),
   ])
+  const previousDayCount = React.useRef(selectedDays.length)
 
   React.useEffect(() => {
     setWorkoutDays((currentDays) =>
       selectedDays.map((dayId, index) => currentDays.find((day) => day.dayId === dayId) ?? createDefaultWorkoutDay(dayId, index)),
     )
 
+    const dayCountChanged = previousDayCount.current !== selectedDays.length
     const suggestedIds = getSuggestedSplitIds(selectedDays.length)
-    if (suggestedIds.length > 0 && !suggestedIds.includes(split)) {
+    if (dayCountChanged && suggestedIds.length > 0) {
       setSplit(suggestedIds[0])
     }
-  }, [selectedDays, split])
+    previousDayCount.current = selectedDays.length
+  }, [selectedDays])
 
   const totalExercises = workoutDays.reduce((total, day) => total + day.exercises.length, 0)
   const selectedMethod = workoutMethods.find((item) => item.id === method) ?? workoutMethods[0]
@@ -132,6 +139,7 @@ export function CreateWorkoutPage() {
     }
 
     window.localStorage.setItem('workout-ai-workouts', JSON.stringify([plan, ...getStoredPlans()]))
+    window.dispatchEvent(new Event('workouts-updated'))
     toast.success('Treino criado com sucesso')
     void navigate({ to: '/workouts' })
   }
@@ -353,6 +361,9 @@ function SplitSelector({
             .map((item) => item.name)
             .join(', ') || 'Selecione os dias para ver sugestões.'}
         </p>
+        <p className="mt-2 text-xs font-medium text-muted-foreground">
+          Essas são dicas iniciais. Qualquer divisão abaixo pode ser escolhida, mesmo fora da sugestão.
+        </p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
@@ -370,7 +381,7 @@ function SplitSelector({
               <p className="font-semibold">{item.name}</p>
               {suggestedIds.includes(item.id) && (
                 <span className="rounded-md bg-primary px-2 py-1 text-xs font-semibold text-primary-foreground">
-                  sugerido
+                  dica
                 </span>
               )}
             </div>
@@ -428,6 +439,7 @@ function DayWorkoutBuilder({
             </div>
 
             <MuscleGroupSelector
+              focus={day.focus}
               selectedGroups={day.muscleGroups}
               onChange={(muscleGroupIds) => updateDay(day.dayId, { muscleGroups: muscleGroupIds })}
             />
@@ -439,13 +451,17 @@ function DayWorkoutBuilder({
 }
 
 function MuscleGroupSelector({
+  focus,
   selectedGroups,
   onChange,
 }: {
+  focus: string
   selectedGroups: string[]
   onChange: (groups: string[]) => void
 }) {
   const categories = ['Superiores', 'Inferiores', 'Cardio'] as const
+  const suggestedGroups = focusMuscleMap[focus] ?? []
+  const suggestedGroupNames = suggestedGroups.map((id) => muscleNameById.get(id)).filter(Boolean)
 
   function toggleGroup(groupId: string) {
     onChange(
@@ -457,6 +473,12 @@ function MuscleGroupSelector({
 
   return (
     <div className="mt-4 space-y-4">
+      {suggestedGroupNames.length > 0 && (
+        <div className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+          Dica para {focus}: {suggestedGroupNames.join(', ')}. Você pode trocar ou adicionar qualquer grupo abaixo.
+        </div>
+      )}
+
       {categories.map((category) => (
         <div key={category} className="space-y-2">
           <p className="text-xs font-semibold uppercase text-muted-foreground">{category}</p>
